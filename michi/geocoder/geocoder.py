@@ -589,7 +589,8 @@ class Geocoder():
         (
             self.cscl_segments_df, self.cscl_segments,
             self.node_network, self.segment_network,
-            self.nodes_df, self.nodes
+            self.nodes_df, self.nodes,
+            self.non_directional_node_network, self.non_directional_segment_network
         ) = self._build_networks(self.network_type)
 
         self.segments = getattr(self, self.segment_dict)
@@ -1171,6 +1172,7 @@ class Geocoder():
         # Create a directional network of the given type
         # This network still has nodes
         node_network = build_directional_network(network, segments)
+        non_directional_node_network = build_directional_network(network, segments, False)
 
         # Create a network where segments connect directly to segments.
         segment_network = build_segment_network(
@@ -1179,9 +1181,15 @@ class Geocoder():
             )
         )
 
+        nodirection_segment_network = build_segment_network(
+            non_directional_node_network, default_cost_function(
+                segments, nodes, turn_cost=100000, intersection_cost=0
+            )
+        )
+
         return (
             cscl_segments_df, cscl_segments, node_network, segment_network,
-            self.nodes_df, nodes
+            self.nodes_df, nodes, non_directional_node_network, nodirection_segment_network
         )
 
     def get_segment(self, segment):
@@ -1260,7 +1268,7 @@ class Geocoder():
 
 
     def get_street_stretch_by_geometry(self, geometry_1, geometry_2,
-                                       on_street_code=None):
+                                       on_street_code=None, ignore_traffic_direction=False):
         """
         Given two endpoint geometries, return a shortest path street stretch.
         Geometries can either be nodes or segments or a combination of the two.
@@ -1286,6 +1294,9 @@ class Geocoder():
             Start and endpoints for the stretch
         on_street_code : str, optional
             An on street code to start and end on.
+        ignore_traffic_direction : bool
+            boolean determines whether to consider traffic direction in routing or not.
+            (tells the function which segment network to use)
 
         Returns
         -------
@@ -1294,52 +1305,55 @@ class Geocoder():
         geometry_1, type_1, id_1, side_1 = self.parse_geometry(geometry_1)
         geometry_2, type_2, id_2, side_2 = self.parse_geometry(geometry_2)
 
+        n_network = self.non_directional_node_network if ignore_traffic_direction else self.node_network
+        s_network = self.non_directional_segment_network if ignore_traffic_direction else self.segment_network
+
         # Add start node (START -> geometry_1)
         if type_1 == 'node':
             # Since we will be routing on the segment network, for nodes connect
             # START to all segments that the node connects to.
-            for segment in self.node_network[geometry_1]:
+            for segment in n_network[geometry_1]:
                 # If on_street_code is provided, only connect to segments
                 # on the given street.
                 if (
                     (on_street_code is None) or
                     (on_street_code in self.get_segment(segment)['street_code'])
                 ):
-                    self.segment_network.add_edge('START', segment, weight=1)
+                    s_network.add_edge('START', segment, weight=1)
         elif type_1 == self.segment_column:
             # For segments, connect the segment itself.
             # If side isn't given, allow both sides.
             if not side_1:
                 for side in ['L', 'R']:
-                    self.segment_network.add_edge('START', geometry_1 + side, weight=1)
+                    s_network.add_edge('START', geometry_1 + side, weight=1)
             else:
-                self.segment_network.add_edge('START', geometry_1, weight=1)
+                s_network.add_edge('START', geometry_1, weight=1)
 
         # Add End Node in the same fashion, but connecting geometry_2 -> END
         if type_2 == 'node':
-            for segment in self.node_network.predecessors(geometry_2):
+            for segment in n_network.predecessors(geometry_2):
                 if (
                     (on_street_code is None) or
                     (on_street_code in self.get_segment(segment)['street_code'])
                 ):
-                    self.segment_network.add_edge(segment, 'END', weight=1)
+                    s_network.add_edge(segment, 'END', weight=1)
         elif type_2 == self.segment_column:
             if not side_2:
                 for side in ['L', 'R']:
-                    self.segment_network.add_edge(geometry_2 + side, 'END', weight=1)
+                    s_network.add_edge(geometry_2 + side, 'END', weight=1)
             else:
-                self.segment_network.add_edge(geometry_2, 'END', weight=1)
+                s_network.add_edge(geometry_2, 'END', weight=1)
 
         try:
             path = nx.bidirectional_dijkstra(
-                self.segment_network, 'START', 'END', weight='weight'
+                s_network, 'START', 'END', weight='weight'
             )[1]
-            return StreetStretch(self, path[1:-1])
+            return StreetStretch(self, path[1:-1], ignore_traffic_direction=ignore_traffic_direction)
         finally:
             # Even if there's an error, make sure to remove START and END from
             # the network.
             for n in ['START', 'END']:
-                self.segment_network.remove_node(n)
+                s_network.remove_node(n)
 
     def get_street_stretch_by_code(self, on_street_code, from_street_code,
                                    to_street_code):

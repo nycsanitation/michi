@@ -70,7 +70,7 @@ def drop_internal_nodes(network):
 
     return to_remove
 
-def build_directional_network(network, segments):
+def build_directional_network(network, segments, use_traffic_direction=True):
     """
     Given a segment->node network that doesn't have directionality
     (such as from `build_monodirectional_network`, build a network that
@@ -113,26 +113,34 @@ def build_directional_network(network, segments):
 
         for node_from in nodes_from:
             for node_to in nodes_to:
-                if traffic_direction == 'W':
-                    network2.add_edge(node_from, left_blockface)
-                    network2.add_edge(left_blockface, node_to)
+                if use_traffic_direction:
+                    if traffic_direction == 'W':
+                        network2.add_edge(node_from, left_blockface)
+                        network2.add_edge(left_blockface, node_to)
 
-                    network2.add_edge(node_from, right_blockface)
-                    network2.add_edge(right_blockface, node_to)
+                        network2.add_edge(node_from, right_blockface)
+                        network2.add_edge(right_blockface, node_to)
 
-                elif traffic_direction == 'A':
-                    network2.add_edge(node_to, left_blockface)
-                    network2.add_edge(left_blockface, node_from)
+                    elif traffic_direction == 'A':
+                        network2.add_edge(node_to, left_blockface)
+                        network2.add_edge(left_blockface, node_from)
 
-                    network2.add_edge(node_to, right_blockface)
-                    network2.add_edge(right_blockface, node_from)
+                        network2.add_edge(node_to, right_blockface)
+                        network2.add_edge(right_blockface, node_from)
 
-                elif traffic_direction == 'T':
-                    network2.add_edge(node_from, right_blockface)
-                    network2.add_edge(right_blockface, node_to)
+                    elif traffic_direction == 'T':
+                        network2.add_edge(node_from, right_blockface)
+                        network2.add_edge(right_blockface, node_to)
 
-                    network2.add_edge(node_to, left_blockface)
-                    network2.add_edge(left_blockface, node_from)
+                        network2.add_edge(node_to, left_blockface)
+                        network2.add_edge(left_blockface, node_from)
+                else:
+                    if traffic_direction in ['W', 'A', 'T']:
+                        network2.add_edge(node_from, right_blockface)
+                        network2.add_edge(right_blockface, node_to)
+
+                        network2.add_edge(node_to, left_blockface)
+                        network2.add_edge(left_blockface, node_from)
 
     return network2
 

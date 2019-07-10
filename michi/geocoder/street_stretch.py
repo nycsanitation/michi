@@ -15,7 +15,7 @@ class StreetStretch:
     It is created from a list of segments and provides functions to get
     the on/from/to streets, geometry and length of the stretch.
     """
-    def __init__(self, geocoder, segments, side=None):
+    def __init__(self, geocoder, segments, side=None, ignore_traffic_direction=False):
         """
         Parameters
         ----------
@@ -35,6 +35,12 @@ class StreetStretch:
         self.side = side
 
         self._on_from_to = None
+
+        self.ignore_traffic_direction = ignore_traffic_direction
+        self.n_network = self.geocoder.non_directional_node_network \
+            if ignore_traffic_direction \
+            else self.geocoder.node_network
+        self._segments_against_traffic = None
 
     def get_segments(self, include_side_of_street=True):
         """
@@ -201,8 +207,12 @@ class StreetStretch:
             # Flip the geometry if direction of travel is reverse of
             # the drawn direction
             if (
-                (traffic_direction == 'A') or
-                ((traffic_direction == 'T') and (side_of_street == 'L'))
+                    (((traffic_direction == 'A') or
+                      ((traffic_direction == 'T') and (side_of_street == 'L')))
+                     and not self.ignore_traffic_direction)
+                    or
+                    (self.ignore_traffic_direction and side_of_street == 'L')
+
             ):
                 # Create a new LineString from the coordinates reversed
                 geometries.append(LineString(geometry.coords[::-1]))
@@ -234,14 +244,14 @@ class StreetStretch:
         return (
             # Get the node that comes before the first segment
             self.geocoder.parse_geometry(
-                list(self.geocoder.node_network.predecessors(
+                list(self.n_network.predecessors(
                     self._segments[0]
                 ))[0]
             )[2],
 
             # And the node that comes after the last
             self.geocoder.parse_geometry(
-                list(self.geocoder.node_network[self._segments[-1]])[0]
+                list(self.n_network[self._segments[-1]])[0]
             )[2]
         )
 
@@ -269,6 +279,34 @@ class StreetStretch:
             self._on_from_to = self.get_on_from_to()
         return self._to_streets
 
+    @property
+    def against_traffic(self):
+        segments_against_traffic = []
+
+        if self._segments_against_traffic:
+            return True
+
+        if self.ignore_traffic_direction:
+            for segment in self.get_segments():
+                segment = self.geocoder.segment_column + ':' + segment
+                segment_id, side_of_street = self.geocoder.parse_geometry(segment)[2:]
+                traffic_direction = self.geocoder.segments[segment_id]['traffic_direction']
+                # add segment if it is against traffic
+                if (
+                        (traffic_direction == 'A' and side_of_street == 'R') or
+                        (traffic_direction == 'W' and side_of_street == 'L')
+                ):
+                    segments_against_traffic.append(segment_id)
+
+            if len(segments_against_traffic) > 0:
+                self._segments_against_traffic = segments_against_traffic
+                return True
+
+        return False
+
+    def get_segments_against_traffic(self):
+        if self.against_traffic:
+            return self._segments_against_traffic
 
     def get_on_from_to(self):
         """
