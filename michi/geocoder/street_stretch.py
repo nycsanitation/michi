@@ -77,48 +77,9 @@ class StreetStretch:
         """
         return sum([self.geocoder.segments[i]['len'] for i in self.segments])
 
-    def _get_on_streets(self, segments):
-        """
-        Given a list of segments, return a list of sets of street codes that the
-        segments are on. Sets of street codes are returned because sometimes
-        multiple street codes refer to the same physical street.
-
-        If a street transitions into another street, consider it the same
-        street. For example, Hogan Place turns into Leonard Street over three
-        segments. The first segment is just Hogan Place, then one segment is
-        both Hogan and Leonard, and the final one is just Leonard. Since the
-        streets overlapped, it will be considered one street.
-
-        Parameters
-        ----------
-        segments : list of str
-
-        Returns
-        -------
-        list of sets of str
-        """
-        streets = []
-        for segment_id in segments:
-            # Get the set of street codes for each segment
-            street_codes = self.geocoder.segments[segment_id]['street_code']
-
-            # Check if this segment's street codes overlap with any of the
-            # already processed segments, if so, add this segment's street
-            # codes to the existing set.
-            match = False
-            for i in range(len(streets)):
-                if streets[i].intersection(street_codes):
-                    streets[i] = streets[i].union(street_codes)
-                    match = True
-
-            if not match:
-                streets.append(street_codes)
-
-        return streets
-
     @property
     def number_of_on_streets(self):
-        return len(self._get_on_streets(self.segments))
+        return len(self.geocoder.get_on_streets(self.segments))
 
     @property
     def start_and_end_on_same_street(self):
@@ -132,10 +93,10 @@ class StreetStretch:
         # Get the on streets using _get_on_streets to handle street codes
         # that change even though the street physically stays the same.
         segments = self.segments
-        on_streets = self._get_on_streets(segments)
+        on_streets = self.geocoder.get_on_streets(segments)
 
         # Get the on street codes specifically for the endpoints.
-        endpoints = self._get_on_streets([segments[0], segments[-1]])
+        endpoints = self.geocoder.get_on_streets([segments[0], segments[-1]])
 
         # If there is only one street code set for the endpoints, then they
         # must start and end on the same street.
