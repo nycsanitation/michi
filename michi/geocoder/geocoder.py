@@ -516,6 +516,53 @@ def _get_segments_dict(lion_df, columns=None):
 
     return dict(lion_df.groupby('segment_id').apply(create_dict))
 
+def _get_street_code_list(segments, segments_dict):
+    """
+    Given a list of segments, return a list of sets of street codes that the
+    segments are on. Sets of street codes are returned because sometimes
+    multiple street codes refer to the same physical street.
+
+    If a street transitions into another street, consider it the same
+    street. For example, Hogan Place turns into Leonard Street over three
+    segments. The first segment is just Hogan Place, then one segment is
+    both Hogan and Leonard, and the final one is just Leonard. Since the
+    streets overlapped, it will be considered one street.
+
+    Parameters
+    ----------
+    segments : list of str
+
+    Returns
+    -------
+    list of sets of str
+    """
+    streets = []
+    for segment_id in segments:
+        # Get the set of street codes for each segment
+        street_codes = segments_dict[segment_id]['street_code']
+
+        # Check if this segment's street codes overlap with any of the
+        # already processed segments, if so, add this segment's street
+        # codes to the existing set.
+        match = False
+        for i in range(len(streets)):
+            if streets[i].intersection(street_codes):
+                streets[i] = streets[i].union(street_codes)
+                match = True
+
+        if not match:
+            streets.append(street_codes)
+
+    return streets
+
+def _add_street_codes_to_streets_dict(streets_dict, segments_dict):
+    for street_code, street in streets_dict.items():
+        if 'df' in street and street['df'] is not None:
+            pids = street['df']['segment_id']
+            street_codes = _get_street_code_list(pids, segments_dict)[0]
+            streets_dict[street_code]['street_codes'] = street_codes
+
+
 # Call super left to right
 # Geocoder -> SearchMixin -> NetworkMixin
 #class Geocoder(SearchMixin, NetworkMixin):
@@ -667,6 +714,9 @@ class Geocoder():
             if value not in street_code_map:
                 street_code_map[value] = value
 
+        # add all valid on-street codes for street
+        _add_street_codes_to_streets_dict(streets, segments)
+
         return (
             lion_df, nodes_df,
             segments, streets,
@@ -726,6 +776,9 @@ class Geocoder():
         return self.streets[street_code_1]['nodes'].intersection(
             self.streets[street_code_2]['nodes']
         )
+
+    def get_on_streets(self, segments):
+        return _get_street_code_list(segments, self.segments)
 
     def get_street_code(self, borough, street):
         """
